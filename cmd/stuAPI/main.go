@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/Sarthak-D97/go_stuAPI/internal/config"
+	"github.com/Sarthak-D97/go_stuAPI/internal/http/handlers/student"
+	"github.com/Sarthak-D97/go_stuAPI/internal/storage/sqlite"
 )
 
 func main() {
@@ -19,12 +21,17 @@ func main() {
 	cfg := config.MustLoad()
 
 	//database setup
+	storage, err := sqlite.New(cfg)
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+	slog.Info("Database connected successfully", slog.String("env", cfg.Env), slog.String("version", "1.0.0"))
+
 	//router setup
 	router := http.NewServeMux()
-
-	router.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("Welcome to Student API"))
-	})
+	router.HandleFunc("POST /api/students", student.New(storage))
+	router.HandleFunc("GET /api/students/{id}", student.GetById(storage))
 
 	//setup server
 	server := http.Server{
@@ -32,13 +39,12 @@ func main() {
 		Handler: router,
 	}
 	slog.Info("Starting server", "address", cfg.HTTPServer.Addr)
-
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		err := server.ListenAndServe()
 		if err != nil {
-			log.Fatalf("failed to start server: %s", err.Error())
+			log.Fatalf("%s", err.Error())
 		}
 	}()
 
@@ -49,6 +55,5 @@ func main() {
 	if err := server.Shutdown(ctx); err != nil {
 		slog.Error("Failed to shut down server", "error", err)
 	}
-
 	slog.Info("Server exited properly")
 }
