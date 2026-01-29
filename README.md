@@ -76,7 +76,7 @@ go mod tidy
 Ensure you have a configuration file set up (e.g., `config/local.yaml`) or environment variables set as required by your `internal/config` package.
 4. **Run the application:**
 ```bash
-go run main.go
+go run cmd/stuAPI/main.go -config config/local.yaml
 
 ```
 
