@@ -49,16 +49,15 @@ func New(storage storage.Storage, rdb *redis.Client) http.HandlerFunc {
 			return
 		}
 		student.ID = int(lastid)
+
 		go func() {
 			ctx := context.Background()
 			cacheKey := fmt.Sprintf("%s%d", studentKeyPrefix, lastid)
 			pipe := rdb.Pipeline()
-			pipe.HSet(ctx, cacheKey, &student)
+			pipe.HSet(ctx, cacheKey, student)
 			pipe.Expire(ctx, cacheKey, cacheTTL)
 			pipe.Del(ctx, studentListKey)
-			_, err := pipe.Exec(ctx)
-
-			if err != nil {
+			if _, err := pipe.Exec(ctx); err != nil {
 				slog.Error("failed to cache student", "error", err)
 			}
 		}()
@@ -80,6 +79,7 @@ func GetById(storage storage.Storage, rdb *redis.Client) http.HandlerFunc {
 			response.WriteJson(w, http.StatusBadRequest, response.GeneralError(err))
 			return
 		}
+
 		cacheKey := fmt.Sprintf("%s%s", studentKeyPrefix, id)
 		var cachedStudent types.Student
 		err = rdb.HGetAll(r.Context(), cacheKey).Scan(&cachedStudent)
@@ -91,11 +91,13 @@ func GetById(storage storage.Storage, rdb *redis.Client) http.HandlerFunc {
 			})
 			return
 		}
+
 		student, err := storage.GetStudentById(intId)
 		if err != nil {
 			response.WriteJson(w, http.StatusInternalServerError, response.GeneralError(err))
 			return
 		}
+
 		go func() {
 			ctx := context.Background()
 			pipe := rdb.Pipeline()
@@ -205,6 +207,7 @@ func UpdateStudent(storage storage.Storage, rdb *redis.Client) http.HandlerFunc 
 		})
 	}
 }
+
 func DeleteStudent(storage storage.Storage, rdb *redis.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
