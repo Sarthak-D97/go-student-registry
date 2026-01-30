@@ -4,7 +4,7 @@ services:
   app:
     build: .
     ports:
-      - "8080:8080"
+      - "8082:8082"
     environment:
       - CONFIG_PATH=./config/local.yaml
       - REDIS_ADDR=redis:6379 
@@ -14,7 +14,8 @@ services:
       - ./storage:/app/storage
 
   redis:
-    image: redis:alpine
+    image: redis:7-alpine
+    container_name: redis_cache
     ports:
       - "6379:6379"
     restart: always

@@ -1,25 +1,26 @@
 # Go_Student_Registry🎓
 
-A robust, lightweight RESTful API for student management built entirely with **Go (Golang)** and **SQLite**.
+A robust, high-performance RESTful API for student management built with **Go (Golang)**, **SQLite**, and **Redis**.
 
-This project demonstrates how to build a production-ready web service using the **Go Standard Library** (specifically Go 1.22+ routing enhancements) without relying on heavy third-party web frameworks like Gin or Echo. It features structured logging, clean architecture, and graceful shutdowns.
+This project demonstrates a production-ready architecture using the **Go Standard Library** (Go 1.22+) enhanced with a **Redis caching layer** for ultra-fast data retrieval. It features structured logging, a "Cache-Aside" pattern, and a fully containerized environment.
 
 ## 🚀 Features
 
-* **RESTful CRUD Operations:** Create, Read, Update, and Delete student records.
-* **Standard Library Routing:** Utilizes Go 1.22+ `http.ServeMux` with method-based matching (e.g., `POST /api/students`).
-* **Structured Logging:** Implements `log/slog` for JSON-formatted, level-based logging.
-* **Persistent Storage:** Uses **SQLite** for a self-contained, lightweight database solution.
-* **Clean Architecture:** Modular project structure separating Handlers, Storage, and Configuration.
-* **Graceful Shutdown:** Handles OS signals (`SIGINT`, `SIGTERM`) to ensure database connections and requests close properly.
+* **RESTful CRUD Operations:** Full lifecycle management for student records.
+* **High-Speed Caching:** Implements **Redis** to cache database queries, significantly reducing latency for `GET` requests.
+* **Standard Library Routing:** Utilizes Go 1.22+ `http.ServeMux` for native, framework-free routing.
+* **Persistent & Portable Storage:** Uses **SQLite** with Write-Ahead Logging (WAL) enabled for safe concurrent access.
+* **Containerized Environment:** Fully Dockerized setup with **Docker Compose** for one-command deployment.
+* **Graceful Shutdown:** Cleanly closes SQLite connections, Redis clients, and HTTP listeners on exit.
 
 ## 🛠️ Tech Stack
 
 * **Language:** Go (1.22+)
 * **Database:** SQLite 3
+* **Cache:** Redis 7 (Alpine)
+* **Containerization:** Docker & Docker Compose
 * **Router:** `net/http` (Standard Lib)
 * **Logging:** `log/slog` (Standard Lib)
-* **Config Management:** Custom loader (YAML/Env)
 
 ## 📂 Project Structure
 
@@ -30,34 +31,38 @@ go_stuAPI/
 ├── internal/
 │   ├── config/        # Configuration loading logic
 │   ├── http/
-│   │   └── handlers/  # HTTP handlers (Controllers)
+│   │   └── handlers/  # Handlers with Redis-logic integration
 │   └── storage/
-│       └── sqlite/    # Database interaction layer
-├── main.go            # Entry point
-└── go.mod             # Dependencies
+│       └── sqlite/    # Optimized SQLite interaction layer
+├── storage/           # Local folder for persistent .db files
+├── Dockerfile         # Multi-stage build for CGO/SQLite
+├── docker-compose.yml # Orchestration for App and Redis
+└── main.go            # Application Entry point
 
 ```
 
 ## 🔌 API Endpoints
 
-| Method | Endpoint | Description |
-| --- | --- | --- |
-| `POST` | `/api/students` | Create a new student |
-| `GET` | `/api/students/{id}` | Retrieve a specific student by ID |
-| `GET` | `/api/students/` | Retrieve a list of all students |
-| `PUT` | `/api/students/{id}` | Update an existing student's details |
-| `DELETE` | `/api/students/{id}` | Remove a student from the database |
+| Method | Endpoint | Description | Cache Logic |
+| --- | --- | --- | --- |
+| `POST` | `/api/students` | Create a student | Invalidates List Cache |
+| `GET` | `/api/students/{id}` | Get student by ID | **Cache Hit/Miss** |
+| `GET` | `/api/students/` | List all students | **Cache Hit/Miss** |
+| `PUT` | `/api/students/{id}` | Update student | Updates Hash & Invalidates List |
+| `DELETE` | `/api/students/{id}` | Remove student | Deletes Cache Keys |
 
 ## ⚙️ Getting Started
 
 ### Prerequisites
 
-* [Go](https://go.dev/dl/) installed (version 1.22 or higher).
-* Git.
+* [Docker](https://www.docker.com/products/docker-desktop/) installed.
+* *Alternatively:* Go 1.22+ and a local Redis instance.
 
-### Installation
+### Installation & Deployment (Docker)
 
-1. **Clone the repository:**
+The fastest way to get started is using Docker Compose. This will spin up the API on **port 8082** and a Redis instance on **port 6379**.
+
+1. **Clone and Enter:**
 ```bash
 git clone https://github.com/Sarthak-D97/go_stuAPI.git
 cd go_stuAPI
@@ -65,43 +70,35 @@ cd go_stuAPI
 ```
 
 
-2. **Download dependencies:**
+2. **Run with Docker Compose:**
 ```bash
-go mod tidy
+docker-compose up --build
 
 ```
 
 
-3. **Configuration:**
-Ensure you have a configuration file set up (e.g., `config/local.yaml`) or environment variables set as required by your `internal/config` package.
-4. **Run the application:**
-```bash
-go run cmd/stuAPI/main.go -config config/local.yaml
-
-```
-
-
-*You should see a log message indicating the server has started.*
 
 ### Testing the API
 
-You can test the endpoints using `curl` or Postman.
+Once the containers are running, the API is available at `http://localhost:8082`.
 
 **Example: Create a Student**
 
 ```bash
-curl -X POST http://localhost:8080/api/students \
+curl -X POST http://localhost:8082/api/students \
   -H "Content-Type: application/json" \
-  -d '{"name": "John Doe", "email": "john@example.com", "age": 22}'
+  -d '{"name": "Sarthak", "email": "sarthak@example.com", "age": 25}'
 
 ```
 
-## 🤝 Contributing
+**Example: Get Student (Check logs to see Redis cache hit)**
 
-Contributions are welcome! Please fork the repository and open a pull request with your changes.
+```bash
+curl http://localhost:8082/api/students/1
+
+```
 
 ## 📄 License
 
-This project is open-source and available under the [MIT License](https://www.google.com/search?q=LICENSE).
+This project is open-source and available under the [MIT License](https://opensource.org/licenses/MIT).
 
----
