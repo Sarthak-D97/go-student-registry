@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"log"
 	"log/slog"
 	"net/http"
@@ -10,77 +11,102 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Sarthak-D97/go_stuAPI/controller"
 	"github.com/Sarthak-D97/go_stuAPI/internal/config"
-	"github.com/Sarthak-D97/go_stuAPI/internal/http/handlers/student"
 	"github.com/Sarthak-D97/go_stuAPI/internal/storage/sqlite"
+	"github.com/Sarthak-D97/go_stuAPI/middlewares"
+	"github.com/Sarthak-D97/go_stuAPI/repository"
+	"github.com/Sarthak-D97/go_stuAPI/service"
+	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
+	gindump "github.com/tpkeeper/gin-dump"
 )
 
-func main() {
-	// 1. Load configuration
-	cfg := config.MustLoad()
+func setupLogOutput() {
+	f, _ := os.Create("gin.log")
+	gin.DefaultWriter = io.MultiWriter(f, os.Stdout)
+}
 
-	// 2. Database setup (SQLite)
+func main() {
+	setupLogOutput()
+	cfg := config.MustLoad()
 	storage, err := sqlite.New(cfg)
 	if err != nil {
-		log.Fatal(err)
-		return
+		log.Fatal("SQLite setup failed:", err)
 	}
-	slog.Info("SQLite connected successfully", slog.String("env", cfg.Env))
 
-	redisAddr := os.Getenv("REDIS_ADDR")
-	if redisAddr == "" {
-		redisAddr = "localhost:6379"
-	}
-	// 3. Redis client setup
 	rdb := redis.NewClient(&redis.Options{
-		Addr:     redisAddr,
-		Password: "",
-		DB:       0,
+		Addr: os.Getenv("REDIS_ADDR"),
 	})
 
-	ping, err := rdb.Ping(context.Background()).Result()
-	if err != nil {
-		slog.Error("Redis connection failed", "error", err)
-	} else {
-		slog.Info("Redis connected successfully", "ping", ping)
-	}
+	jwtService := service.NewJWTService()
+	LoginService := service.NewLoginService()
+	loginController := controller.NewLoginController(*LoginService, jwtService)
 
-	// 4. Router setup
-	router := http.NewServeMux()
-	router.HandleFunc("POST /api/students", student.New(storage, rdb))
-	router.HandleFunc("GET /api/students/{id}", student.GetById(storage, rdb))
-	router.HandleFunc("PUT /api/students/{id}", student.UpdateStudent(storage, rdb))
-	router.HandleFunc("GET /api/students/", student.GetList(storage, rdb))
-	router.HandleFunc("DELETE /api/students/{id}", student.DeleteStudent(storage, rdb))
-	// 5. Server setup
-	server := http.Server{
+	studentService := service.NewStudentService(storage, rdb)
+	studentController := controller.NewStudentController(studentService)
+
+	videoRepository := repository.NewVideoRepository()
+	defer videoRepository.CloseDB()
+
+	videoService := service.NewVideoService(videoRepository)
+	videoController := controller.New(videoService)
+	router := gin.New()
+	router.Use(gin.Recovery(), middlewares.Logger(), gindump.Dump())
+	router.POST("/login", func(ctx *gin.Context) {
+		token := loginController.Login(ctx)
+		if token != "" {
+			ctx.JSON(http.StatusOK, gin.H{"token": token})
+			return
+		}
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+	})
+	api := router.Group("/api", middlewares.AuthorizeJWT())
+	{
+		students := api.Group("/students")
+		{
+			students.POST("/", studentController.Create)
+			students.GET("/:id", studentController.GetByID)
+			students.PUT("/:id", studentController.Update)
+			students.GET("/", studentController.GetList)
+			students.DELETE("/:id", studentController.Delete)
+
+		videos := api.Group("/videos")
+		{
+			videos.GET("/", videoController.FindAll)
+			videos.POST("/", func(ctx *gin.Context) {
+				_ = videoController.Save(ctx)
+			})
+			videos.PUT("/:id", func(ctx *gin.Context) {
+				_ = videoController.Update(ctx)
+			})
+			videos.DELETE("/:id", func(ctx *gin.Context) {
+				_ = videoController.Delete(ctx)
+			})
+		}
+	}
+	srv := &http.Server{
 		Addr:    cfg.HTTPServer.Addr,
 		Handler: router,
 	}
 
-	slog.Info("Starting server", "address", cfg.HTTPServer.Addr)
-
-	done := make(chan os.Signal, 1)
-	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
-
 	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server error: %s", err.Error())
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("listen: %s\n", err)
 		}
 	}()
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
 
-	<-done
-	slog.Info("Shutting down the server")
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	slog.Info("Shutting down server...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := rdb.Close(); err != nil {
-		slog.Error("Failed to close Redis", "error", err)
-	}
-	if err := server.Shutdown(ctx); err != nil {
-		slog.Error("Failed to shut down server", "error", err)
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Fatal("Server forced to shutdown:", err)
 	}
 
-	slog.Info("Server exited properly")
+	slog.Info("Server exiting")
 }
