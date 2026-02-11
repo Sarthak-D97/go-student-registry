@@ -29,6 +29,11 @@ func setupLogOutput() {
 }
 
 func main() {
+
+	// swagger 2.0 Meta Infoormation
+	docs.SwaggerInfo.Title = "Student API"
+	docs.SwaggerInfo.Description = "Student API - Videos, Article, Questions "
+
 	setupLogOutput()
 	cfg := config.MustLoad()
 
