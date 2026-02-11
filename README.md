@@ -1,26 +1,30 @@
-# Go_Student_Registry🎓
 
-A robust, high-performance RESTful API for student management built with **Go (Golang)**, **SQLite**, and **Redis**.
+# Go_Student_Registry 🎓
 
-This project demonstrates a production-ready architecture using the **Go Standard Library** (Go 1.22+) enhanced with a **Redis caching layer** for ultra-fast data retrieval. It features structured logging, a "Cache-Aside" pattern, and a fully containerized environment.
+A robust, high-performance RESTful API for student and video management built with **Go (Golang)**, **Gin Framework**, **PostgreSQL**, and **Redis**.
+
+This project demonstrates a production-ready architecture using the **MVC Pattern** (Model-View-Controller). It features **JWT Authentication**, structured logging, a "Cache-Aside" pattern for performance, and fully interactive API documentation via **Swagger**.
 
 ## 🚀 Features
 
-* **RESTful CRUD Operations:** Full lifecycle management for student records.
-* **High-Speed Caching:** Implements **Redis** to cache database queries, significantly reducing latency for `GET` requests.
-* **Standard Library Routing:** Utilizes Go 1.22+ `http.ServeMux` for native, framework-free routing.
-* **Persistent & Portable Storage:** Uses **SQLite** with Write-Ahead Logging (WAL) enabled for safe concurrent access.
-* **Containerized Environment:** Fully Dockerized setup with **Docker Compose** for one-command deployment.
-* **Graceful Shutdown:** Cleanly closes SQLite connections, Redis clients, and HTTP listeners on exit.
+* **Gin Web Framework:** High-performance HTTP web framework for routing and middleware.
+* **Swagger Documentation:** Interactive API docs available at `/docs/index.html`.
+* **JWT Authentication:** Secure access to private routes using JSON Web Tokens.
+* **Dual-Entity Management:** Full CRUD operations for **Students** and **Videos**.
+* **PostgreSQL Database:** Reliable, relational storage for all persistent data.
+* **High-Speed Caching:** Implements **Redis** to cache database queries, significantly reducing latency.
+* **Containerized Environment:** Fully Dockerized setup with **Docker Compose**.
+* **Graceful Shutdown:** Cleanly closes DB connections and HTTP listeners on exit.
 
 ## 🛠️ Tech Stack
 
-* **Language:** Go (1.22+)
-* **Database:** SQLite 3
+* **Language:** Go (1.21+)
+* **Framework:** [Gin Gonic](https://github.com/gin-gonic/gin)
+* **Database:** PostgreSQL 16
 * **Cache:** Redis 7 (Alpine)
+* **Documentation:** Swagger (Swaggo)
+* **Auth:** JWT (JSON Web Tokens)
 * **Containerization:** Docker & Docker Compose
-* **Router:** `net/http` (Standard Lib)
-* **Logging:** `log/slog` (Standard Lib)
 
 ## 📂 Project Structure
 
@@ -28,77 +32,105 @@ This project demonstrates a production-ready architecture using the **Go Standar
 go_stuAPI/
 ├── cmd/
 │   └── stuAPI/        # Main application entry point
+├── controller/        # HTTP Handlers (Gin Context)
+├── service/           # Business Logic Layer
+├── repository/        # Database Access Layer (GORM/SQL)
 ├── internal/
-│   ├── config/        # Configuration loading logic
-│   ├── http/
-│   │   └── handlers/  # Handlers with Redis-logic integration
-│   └── storage/
-│       └── sqlite/    # Optimized SQLite interaction layer
-├── storage/           # Local folder for persistent .db files
-├── Dockerfile         # Multi-stage build for CGO/SQLite
-├── docker-compose.yml # Orchestration for App and Redis
+│   ├── config/        # Configuration loading
+│   └── platform/      # DB & Redis connections
+├── docs/              # Swagger generated files
+├── middlewares/       # Auth & Logging middleware
+├── Dockerfile         # Multi-stage build
+├── docker-compose.yml # Orchestration for App, Postgres, Redis
 └── main.go            # Application Entry point
 
 ```
 
 ## 🔌 API Endpoints
 
-| Method | Endpoint | Description | Cache Logic |
-| --- | --- | --- | --- |
-| `POST` | `/api/students` | Create a student | Invalidates List Cache |
-| `GET` | `/api/students/{id}` | Get student by ID | **Cache Hit/Miss** |
-| `GET` | `/api/students/` | List all students | **Cache Hit/Miss** |
-| `PUT` | `/api/students/{id}` | Update student | Updates Hash & Invalidates List |
-| `DELETE` | `/api/students/{id}` | Remove student | Deletes Cache Keys |
+### 📖 Documentation
+
+The full interactive documentation is available in your browser:
+👉 **[http://localhost:5000/docs/index.html](https://www.google.com/search?q=http://localhost:5000/docs/index.html)**
+
+### Public Routes
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `POST` | `/login` | Authenticate user & get **JWT Token** |
+| `GET` | `/docs/*` | Swagger UI Access |
+
+### Protected Routes (Requires `Authorization: Bearer <token>`)
+
+**Students**
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `POST` | `/api/students` | Create a student |
+| `GET` | `/api/students/{id}` | Get student by ID (**Cached**) |
+| `GET` | `/api/students/` | List all students (**Cached**) |
+| `PUT` | `/api/students/{id}` | Update student details |
+| `DELETE` | `/api/students/{id}` | Remove student |
+
+**Videos**
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `GET` | `/api/videos` | List all videos |
+| `POST` | `/api/videos` | Add a new video |
+| `PUT` | `/api/videos/{id}` | Update video metadata |
+| `DELETE` | `/api/videos/{id}` | Delete a video |
 
 ## ⚙️ Getting Started
 
 ### Prerequisites
 
-* [Docker](https://www.docker.com/products/docker-desktop/) installed.
-* *Alternatively:* Go 1.22+ and a local Redis instance.
+* [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed.
 
 ### Installation & Deployment (Docker)
 
-The fastest way to get started is using Docker Compose. This will spin up the API on **port 8082** and a Redis instance on **port 6379**.
+The fastest way to get started is using Docker Compose. This will spin up the API on **port 5000**, PostgreSQL on **port 5432**, and Redis on **port 6379**.
 
-1. **Clone and Enter:**
+1. **Clone the Repository:**
+
 ```bash
-git clone https://github.com/Sarthak-D97/go_stuAPI.git
+git clone [https://github.com/Sarthak-D97/go_stuAPI.git](https://github.com/Sarthak-D97/go_stuAPI.git)
 cd go_stuAPI
 
 ```
 
-
 2. **Run with Docker Compose:**
+
 ```bash
 docker-compose up --build
 
 ```
 
-
+*(Note: The first run might take a moment to initialize the Database schema).*
 
 ### Testing the API
 
-Once the containers are running, the API is available at `http://localhost:8082`.
+**1. Access Swagger UI**
+Open your browser and navigate to:
+[http://localhost:5000/docs/index.html](https://www.google.com/search?q=http://localhost:5000/docs/index.html)
 
-**Example: Create a Student**
+**2. Login to get a Token**
+Use the `Try it out` button on the `/login` endpoint.
 
-```bash
-curl -X POST http://localhost:8082/api/students \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Sarthak", "email": "sarthak@example.com", "age": 25}'
+* **Username:** `student_user`
+* **Password:** `secret123`
+* *Copy the returned "token" string.*
 
-```
+**3. Authorize in Swagger**
 
-**Example: Get Student (Check logs to see Redis cache hit)**
-
-```bash
-curl http://localhost:8082/api/students/1
-
-```
+* Click the **Authorize** button at the top of the Swagger page.
+* Enter `Bearer <YOUR_TOKEN_HERE>`.
+* Now you can test all the `/api/students` and `/api/videos` endpoints!
 
 ## 📄 License
 
 This project is open-source and available under the [MIT License](https://opensource.org/licenses/MIT).
 
+```
+
+```

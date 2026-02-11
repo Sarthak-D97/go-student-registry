@@ -1,0 +1,19 @@
+basePath: /api
+host: localhost:8082
+info:
+  contact:
+    name: API Support
+  description: Student API - Videos, Article, Questions
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  termsOfService: http://swagger.io/terms/
+  title: Student API
+  version: "1.0"
+paths: {}
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
