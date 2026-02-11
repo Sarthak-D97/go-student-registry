@@ -6,14 +6,42 @@ services:
     environment:
       - CONFIG_PATH=./config/local.yaml
       - REDIS_ADDR=redis:6379
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=appuser
+      - DB_PASSWORD=apppassword
+      - DB_NAME=student_api
+      - DB_SSLMODE=disable
     depends_on:
-      - redis
-    volumes:
-      - ./storage:/app/storage
-
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
   redis:
     image: redis:7-alpine
     container_name: redis_cache
     ports:
       - "6379:6379"
     restart: always
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres_db
+    environment:
+      - POSTGRES_USER=appuser
+      - POSTGRES_PASSWORD=apppassword
+      - POSTGRES_DB=student_api
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U appuser -d student_api"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  postgres_data:

@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/Sarthak-D97/go_stuAPI/internal/storage"
-	"github.com/Sarthak-D97/go_stuAPI/internal/types"
+	"github.com/Sarthak-D97/go_stuAPI/entity"
+	"github.com/Sarthak-D97/go_stuAPI/repository"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -18,98 +18,122 @@ const (
 	cacheTTL         = 10 * time.Minute
 )
 
+// StudentService interface aligned with Controller calls
 type StudentService interface {
-	CreateStudent(student types.Student) (types.Student, error)
-	GetStudentByID(id int64) (*types.Student, error)
-	GetAllStudents() ([]types.Student, error)
-	UpdateStudent(id int64, student types.Student) error
-	DeleteStudent(id int64) error
+	Create(student *entity.Student) error
+	FindByID(id uint) (*entity.Student, error)
+	FindAll() ([]entity.Student, error)
+	Update(student *entity.Student) error
+	Delete(id uint) error
 }
 
 type studentService struct {
-	storage storage.Storage
-	rdb     *redis.Client
+	repo repository.Repository // Ensure your repository interface matches these types
+	rdb  *redis.Client
 }
 
-func NewStudentService(storage storage.Storage, rdb *redis.Client) StudentService {
+// NewStudentService creates a new instance of the service
+func NewStudentService(repo repository.Repository, rdb *redis.Client) StudentService {
 	return &studentService{
-		storage: storage,
-		rdb:     rdb,
+		repo: repo,
+		rdb:  rdb,
 	}
 }
 
-func (s *studentService) CreateStudent(student types.Student) (types.Student, error) {
-	lastID, err := s.storage.CreateStudent(student.Name, student.Email, student.Age)
+// Create - Aligned to receive pointer
+func (s *studentService) Create(student *entity.Student) error {
+	// 1. Save to DB
+	// We pass the pointer or value depending on your repo implementation.
+	// Assuming Repo returns the created struct with ID.
+	created, err := s.repo.Create(*student)
 	if err != nil {
-		return types.Student{}, err
+		return err
 	}
-	student.ID = int(lastID)
 
-	go func(st types.Student, id int64) {
+	// Update the original pointer with the new ID so the controller can return it
+	student.ID = created.ID
+
+	// 2. Cache (Async)
+	go func(st entity.Student) {
 		ctx := context.Background()
-		cacheKey := fmt.Sprintf("%s%d", studentKeyPrefix, id)
+		cacheKey := fmt.Sprintf("%s%d", studentKeyPrefix, st.ID)
+
 		pipe := s.rdb.Pipeline()
+		// Use JSON for HSet if fields aren't flat, or use standard Set for simplicity
+		// Here we stick to your HSet logic, ensure struct has redis tags
 		pipe.HSet(ctx, cacheKey, st)
 		pipe.Expire(ctx, cacheKey, cacheTTL)
+
+		// Invalidate list cache
 		pipe.Del(ctx, studentListKey)
+
 		if _, err := pipe.Exec(ctx); err != nil {
 			slog.Error("failed to cache student", "error", err)
 		}
-	}(student, lastID)
+	}(created)
 
-	slog.Info("student created successfully", slog.Int64("student_id", lastID))
-	return student, nil
+	slog.Info("student created successfully", slog.Uint64("student_id", uint64(created.ID)))
+	return nil
 }
 
-func (s *studentService) GetStudentByID(id int64) (*types.Student, error) {
+// FindByID - Aligned to accept uint
+func (s *studentService) FindByID(id uint) (*entity.Student, error) {
 	ctx := context.Background()
 	cacheKey := fmt.Sprintf("%s%d", studentKeyPrefix, id)
 
-	var cachedStudent types.Student
-	err := s.rdb.HGetAll(ctx, cacheKey).Scan(&cachedStudent)
-	if err == nil && cachedStudent.ID != 0 {
-		slog.Info("serving student from cache (hash)", slog.Int64("id", id))
+	// 1. Check Redis
+	var cachedStudent entity.Student
+	// Using HGetAll assuming the data was stored as a Hash
+	if err := s.rdb.HGetAll(ctx, cacheKey).Scan(&cachedStudent); err == nil && cachedStudent.ID != 0 {
+		slog.Info("serving student from cache (hash)", slog.Uint64("id", uint64(id)))
 		return &cachedStudent, nil
 	}
 
-	student, err := s.storage.GetStudentById(id)
+	// 2. Check DB
+	// Cast uint to int64 if your repo expects int64
+	student, err := s.repo.GetByID(int64(id))
 	if err != nil {
 		return nil, err
 	}
 
-	go func(st *types.Student, cacheKey string) {
+	// 3. Cache (Async)
+	go func(st *entity.Student, key string) {
 		ctx := context.Background()
 		pipe := s.rdb.Pipeline()
-		pipe.HSet(ctx, cacheKey, st)
-		pipe.Expire(ctx, cacheKey, cacheTTL)
+		pipe.HSet(ctx, key, st)
+		pipe.Expire(ctx, key, cacheTTL)
 		if _, err := pipe.Exec(ctx); err != nil {
 			slog.Error("failed to cache student", "error", err)
 		}
 	}(student, cacheKey)
 
-	slog.Info("student fetched successfully", slog.Int64("student_id", id))
+	slog.Info("student fetched successfully", slog.Uint64("student_id", uint64(id)))
 	return student, nil
 }
 
-func (s *studentService) GetAllStudents() ([]types.Student, error) {
+// FindAll - Renamed from GetAllStudents
+func (s *studentService) FindAll() ([]entity.Student, error) {
 	ctx := context.Background()
 
+	// 1. Check Redis
 	val, err := s.rdb.Get(ctx, studentListKey).Result()
 	if err == nil {
-		var cachedStudents []types.Student
+		var cachedStudents []entity.Student
 		if jsonErr := json.Unmarshal([]byte(val), &cachedStudents); jsonErr == nil {
 			slog.Info("serving student list from cache")
 			return cachedStudents, nil
 		}
 	}
 
-	students, err := s.storage.GetAllStudents()
+	// 2. Check DB
+	students, err := s.repo.List()
 	if err != nil {
 		return nil, err
 	}
 
-	go func(students []types.Student) {
-		data, _ := json.Marshal(students)
+	// 3. Cache (Async)
+	go func(st []entity.Student) {
+		data, _ := json.Marshal(st)
 		s.rdb.Set(context.Background(), studentListKey, data, cacheTTL)
 	}(students)
 
@@ -117,44 +141,50 @@ func (s *studentService) GetAllStudents() ([]types.Student, error) {
 	return students, nil
 }
 
-func (s *studentService) UpdateStudent(id int64, student types.Student) error {
-	if err := s.storage.UpdateStudent(id, student.Name, student.Email, student.Age); err != nil {
+// Update - Aligned to accept pointer
+func (s *studentService) Update(student *entity.Student) error {
+	// Cast ID to int64 for repo
+	if err := s.repo.Update(int64(student.ID), *student); err != nil {
 		return err
 	}
 
-	go func(id int64, st types.Student) {
+	// Invalidate/Update Cache (Async)
+	go func(st entity.Student) {
 		ctx := context.Background()
-		cacheKey := fmt.Sprintf("%s%d", studentKeyPrefix, id)
+		cacheKey := fmt.Sprintf("%s%d", studentKeyPrefix, st.ID)
 
 		pipe := s.rdb.Pipeline()
-		pipe.HSet(ctx, cacheKey, st)
+		pipe.HSet(ctx, cacheKey, st) // Update individual cache
 		pipe.Expire(ctx, cacheKey, cacheTTL)
-		pipe.Del(ctx, studentListKey)
+		pipe.Del(ctx, studentListKey) // Invalidate list cache
+
 		if _, err := pipe.Exec(ctx); err != nil {
 			slog.Error("failed to update student cache", "error", err)
 		}
-	}(id, student)
+	}(*student)
 
-	slog.Info("student updated successfully", slog.Int64("student_id", id))
+	slog.Info("student updated successfully", slog.Uint64("student_id", uint64(student.ID)))
 	return nil
 }
 
-func (s *studentService) DeleteStudent(id int64) error {
-	if err := s.storage.DeleteStudent(id); err != nil {
+// Delete - Aligned to accept uint
+func (s *studentService) Delete(id uint) error {
+	if err := s.repo.Delete(int64(id)); err != nil {
 		return err
 	}
 
-	go func(id int64) {
+	// Clear Cache (Async)
+	go func(uid uint) {
 		ctx := context.Background()
 		pipe := s.rdb.Pipeline()
-		pipe.Del(ctx, fmt.Sprintf("%s%d", studentKeyPrefix, id))
+		pipe.Del(ctx, fmt.Sprintf("%s%d", studentKeyPrefix, uid))
 		pipe.Del(ctx, studentListKey)
+
 		if _, err := pipe.Exec(ctx); err != nil {
 			slog.Error("failed to update student cache after delete", "error", err)
 		}
 	}(id)
 
-	slog.Info("student deleted successfully", slog.Int64("student_id", id))
+	slog.Info("student deleted successfully", slog.Uint64("student_id", uint64(id)))
 	return nil
 }
-

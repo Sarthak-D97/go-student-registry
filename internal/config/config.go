@@ -12,11 +12,16 @@ type HTTPServer struct {
 	Addr string `yaml:"address" env:"ADDR" env-required:"true"`
 }
 
-// env-default:"production"
 type Config struct {
-	Env         string `yaml:"env" env:"ENV" env-required:"true"`
-	StoragePath string `yaml:"storage_path" env-required:"true"`
-	HTTPServer  `yaml:"http_server"`
+	Env        string     `yaml:"env" env:"ENV" env-required:"true"`
+	HTTPServer `yaml:"http_server"`
+
+	DBHost     string `yaml:"db_host" env:"DB_HOST" env-required:"true"`
+	DBPort     int    `yaml:"db_port" env:"DB_PORT" env-required:"true"`
+	DBUser     string `yaml:"db_user" env:"DB_USER" env-required:"true"`
+	DBPassword string `yaml:"db_password" env:"DB_PASSWORD" env-required:"true"`
+	DBName     string `yaml:"db_name" env:"DB_NAME" env-required:"true"`
+	DBSSLMode  string `yaml:"db_sslmode" env:"DB_SSLMODE" env-default:"disable"`
 }
 
 func MustLoad() *Config {

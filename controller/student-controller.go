@@ -4,13 +4,12 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/Sarthak-D97/go_stuAPI/internal/types"
-	"github.com/Sarthak-D97/go_stuAPI/internal/utils/response"
+	"github.com/Sarthak-D97/go_stuAPI/entity"
 	"github.com/Sarthak-D97/go_stuAPI/service"
 	"github.com/gin-gonic/gin"
-	"github.com/go-playground/validator/v10"
 )
 
+// StudentController defines the interface for the controller
 type StudentController interface {
 	Create(ctx *gin.Context)
 	GetByID(ctx *gin.Context)
@@ -20,128 +19,107 @@ type StudentController interface {
 }
 
 type studentController struct {
-	service  service.StudentService
-	validate *validator.Validate
+	service service.StudentService
 }
 
+// NewStudentController creates a new instance of the controller
 func NewStudentController(service service.StudentService) StudentController {
 	return &studentController{
-		service:  service,
-		validate: validator.New(),
+		service: service,
 	}
 }
 
+// Create - POST /api/students/
 func (c *studentController) Create(ctx *gin.Context) {
-	var student types.Student
+	var student entity.Student
+
+	// Bind JSON body to struct
 	if err := ctx.ShouldBindJSON(&student); err != nil {
-		_ = response.WriteJson(ctx.Writer, http.StatusBadRequest, response.GeneralError(err))
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	if err := c.validate.Struct(student); err != nil {
-		if ve, ok := err.(validator.ValidationErrors); ok {
-			_ = response.WriteJson(ctx.Writer, http.StatusBadRequest, response.ValidationError(ve))
-			return
-		}
-		_ = response.WriteJson(ctx.Writer, http.StatusBadRequest, response.GeneralError(err))
-		return
-	}
-
-	created, err := c.service.CreateStudent(student)
+	// Call service
+	err := c.service.Create(&student)
 	if err != nil {
-		_ = response.WriteJson(ctx.Writer, http.StatusInternalServerError, response.GeneralError(err))
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	_ = response.WriteJson(ctx.Writer, http.StatusCreated, map[string]interface{}{
-		"status":  response.StatusCreated,
-		"student": created,
-	})
+	ctx.JSON(http.StatusCreated, student)
 }
 
+// GetByID - GET /api/students/:id
 func (c *studentController) GetByID(ctx *gin.Context) {
 	idStr := ctx.Param("id")
-	intID, err := strconv.ParseInt(idStr, 10, 64)
+	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		_ = response.WriteJson(ctx.Writer, http.StatusBadRequest, response.GeneralError(err))
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID format"})
 		return
 	}
 
-	student, err := c.service.GetStudentByID(intID)
+	// Casting to uint because your Service expects uint (based on previous steps)
+	student, err := c.service.FindByID(uint(id))
 	if err != nil {
-		_ = response.WriteJson(ctx.Writer, http.StatusInternalServerError, response.GeneralError(err))
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "Student not found"})
 		return
 	}
 
-	_ = response.WriteJson(ctx.Writer, http.StatusOK, map[string]interface{}{
-		"status":  response.StatusOK,
-		"student": student,
-	})
+	ctx.JSON(http.StatusOK, student)
 }
 
+// GetList - GET /api/students/
 func (c *studentController) GetList(ctx *gin.Context) {
-	students, err := c.service.GetAllStudents()
+	students, err := c.service.FindAll()
 	if err != nil {
-		_ = response.WriteJson(ctx.Writer, http.StatusInternalServerError, response.GeneralError(err))
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
-	_ = response.WriteJson(ctx.Writer, http.StatusOK, map[string]interface{}{
-		"status":   response.StatusOK,
-		"students": students,
-	})
+	ctx.JSON(http.StatusOK, students)
 }
 
+// Update - PUT /api/students/:id
 func (c *studentController) Update(ctx *gin.Context) {
 	idStr := ctx.Param("id")
-	intID, err := strconv.ParseInt(idStr, 10, 64)
+	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		_ = response.WriteJson(ctx.Writer, http.StatusBadRequest, response.GeneralError(err))
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID format"})
 		return
 	}
 
-	var student types.Student
+	var student entity.Student
 	if err := ctx.ShouldBindJSON(&student); err != nil {
-		_ = response.WriteJson(ctx.Writer, http.StatusBadRequest, response.GeneralError(err))
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	if err := c.validate.Struct(student); err != nil {
-		if ve, ok := err.(validator.ValidationErrors); ok {
-			_ = response.WriteJson(ctx.Writer, http.StatusBadRequest, response.ValidationError(ve))
-			return
-		}
-		_ = response.WriteJson(ctx.Writer, http.StatusBadRequest, response.GeneralError(err))
+	// FIX: Cast to int because entity.Student.ID is an int
+	student.ID = int(id)
+
+	err = c.service.Update(&student)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	if err := c.service.UpdateStudent(intID, student); err != nil {
-		_ = response.WriteJson(ctx.Writer, http.StatusInternalServerError, response.GeneralError(err))
-		return
-	}
-
-	_ = response.WriteJson(ctx.Writer, http.StatusOK, map[string]interface{}{
-		"status":     response.StatusOK,
-		"student_id": intID,
-	})
+	ctx.JSON(http.StatusOK, student)
 }
 
+// Delete - DELETE /api/students/:id
 func (c *studentController) Delete(ctx *gin.Context) {
 	idStr := ctx.Param("id")
-	intID, err := strconv.ParseInt(idStr, 10, 64)
+	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		_ = response.WriteJson(ctx.Writer, http.StatusBadRequest, response.GeneralError(err))
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID format"})
 		return
 	}
 
-	if err := c.service.DeleteStudent(intID); err != nil {
-		_ = response.WriteJson(ctx.Writer, http.StatusInternalServerError, response.GeneralError(err))
+	// Casting to uint for the Service call
+	err = c.service.Delete(uint(id))
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	_ = response.WriteJson(ctx.Writer, http.StatusOK, map[string]interface{}{
-		"status": response.StatusOK,
-		"msg":    "student deleted successfully",
-	})
+	ctx.JSON(http.StatusOK, gin.H{"message": "Student deleted successfully"})
 }
-

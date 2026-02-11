@@ -16,7 +16,7 @@ RUN CGO_ENABLED=1 GOOS=linux go build -o main ./cmd/stuAPI/main.go
 # Stage 2: Runtime
 FROM alpine:latest
 
-RUN apk add --no-cache ca-certificates sqlite
+RUN apk add --no-cache ca-certificates
 
 WORKDIR /app
 

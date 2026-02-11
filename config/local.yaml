@@ -1,4 +1,11 @@
 env: "dev"
-storage_path: "storage/storage.db"
-http_server: 
+
+http_server:
   address: "0.0.0.0:8082"
+
+db_host: "postgres"
+db_port: 5432
+db_user: "appuser"
+db_password: "apppassword"
+db_name: "student_api"
+db_sslmode: "disable"

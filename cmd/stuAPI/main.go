@@ -13,12 +13,13 @@ import (
 
 	"github.com/Sarthak-D97/go_stuAPI/controller"
 	"github.com/Sarthak-D97/go_stuAPI/internal/config"
-	"github.com/Sarthak-D97/go_stuAPI/internal/storage/sqlite"
+	db "github.com/Sarthak-D97/go_stuAPI/internal/platform/db"
+	redisclient "github.com/Sarthak-D97/go_stuAPI/internal/platform/redis"
 	"github.com/Sarthak-D97/go_stuAPI/middlewares"
 	"github.com/Sarthak-D97/go_stuAPI/repository"
+	studentRepoImpl "github.com/Sarthak-D97/go_stuAPI/repository"
 	"github.com/Sarthak-D97/go_stuAPI/service"
 	"github.com/gin-gonic/gin"
-	"github.com/redis/go-redis/v9"
 	gindump "github.com/tpkeeper/gin-dump"
 )
 
@@ -30,20 +31,27 @@ func setupLogOutput() {
 func main() {
 	setupLogOutput()
 	cfg := config.MustLoad()
-	storage, err := sqlite.New(cfg)
+
+	// 1. Initialize Postgres
+	pgDB, err := db.NewPostgres(cfg)
 	if err != nil {
-		log.Fatal("SQLite setup failed:", err)
+		log.Fatal("Postgres setup failed:", err)
 	}
 
-	rdb := redis.NewClient(&redis.Options{
-		Addr: os.Getenv("REDIS_ADDR"),
-	})
+	// 2. Initialize Redis
+	rdb := redisclient.NewClient()
 
+	// 3. Initialize Services
 	jwtService := service.NewJWTService()
-	LoginService := service.NewLoginService()
-	loginController := controller.NewLoginController(*LoginService, jwtService)
+	loginService := service.NewLoginService()
+	loginController := controller.NewLoginController(*loginService, jwtService)
 
-	studentService := service.NewStudentService(storage, rdb)
+	// FIX 2: Create the Repository first, passing the DB connection to it
+	// The service needs the Repository, NOT the raw pgDB connection
+	studentRepo := studentRepoImpl.New(pgDB)
+
+	// FIX 3: Pass the initialized repository to the service
+	studentService := service.NewStudentService(studentRepo, rdb)
 	studentController := controller.NewStudentController(studentService)
 
 	videoRepository := repository.NewVideoRepository()
@@ -51,8 +59,12 @@ func main() {
 
 	videoService := service.NewVideoService(videoRepository)
 	videoController := controller.New(videoService)
+
+	// 4. Router Setup
 	router := gin.New()
 	router.Use(gin.Recovery(), middlewares.Logger(), gindump.Dump())
+
+	// Public Routes
 	router.POST("/login", func(ctx *gin.Context) {
 		token := loginController.Login(ctx)
 		if token != "" {
@@ -61,7 +73,9 @@ func main() {
 		}
 		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
 	})
-	api := router.Group("/api", middlewares.AuthorizeJWT())
+
+	// Private Routes
+	api := router.Group("/api", middlewares.AuthorizeJWT(jwtService))
 	{
 		students := api.Group("/students")
 		{
@@ -70,6 +84,7 @@ func main() {
 			students.PUT("/:id", studentController.Update)
 			students.GET("/", studentController.GetList)
 			students.DELETE("/:id", studentController.Delete)
+		}
 
 		videos := api.Group("/videos")
 		{
@@ -85,6 +100,8 @@ func main() {
 			})
 		}
 	}
+
+	// 5. Server Startup
 	srv := &http.Server{
 		Addr:    cfg.HTTPServer.Addr,
 		Handler: router,
@@ -95,6 +112,8 @@ func main() {
 			log.Fatalf("listen: %s\n", err)
 		}
 	}()
+
+	// 6. Graceful Shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
